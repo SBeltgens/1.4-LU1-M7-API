@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using NACGames;
 using Predictions;
+using SensoringData;
 
 namespace API_Data.Controllers
 {
@@ -11,11 +12,13 @@ namespace API_Data.Controllers
     {
         private readonly RetrieveNACGames _gameService;
         private readonly RetrievePredictions _predictionService;
+        private readonly RetrieveSensoringData _sensoringDataService;
 
-        public API_DataController(RetrieveNACGames gameService, RetrievePredictions predictionService)
+        public API_DataController(RetrieveNACGames gameService, RetrievePredictions predictionService, RetrieveSensoringData sensoringDataService)
         {
             _gameService = gameService;
             _predictionService = predictionService;
+            _sensoringDataService = sensoringDataService;
         }
 
         // This maps to: GET /NACGames/NextHomeGame

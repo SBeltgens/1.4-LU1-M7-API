@@ -1,5 +1,6 @@
 using NACGames;
 using Predictions;
+using SensoringData;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<RetrieveNACGames>();
 builder.Services.AddScoped<RetrievePredictions>();
+builder.Services.AddScoped<RetrieveSensoringData>();
 
 builder.Services.AddOpenApi();
 // Register controller services
