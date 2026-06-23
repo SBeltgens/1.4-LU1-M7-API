@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using NACGames;
+using Predictions;
 
 namespace API_Data.Controllers
 {
@@ -9,9 +10,12 @@ namespace API_Data.Controllers
     public class API_DataController : ControllerBase
     {
         private readonly RetrieveNACGames _gameService;
-        public API_DataController(RetrieveNACGames gameService)
+        private readonly RetrievePredictions _predictionService;
+
+        public API_DataController(RetrieveNACGames gameService, RetrievePredictions predictionService)
         {
             _gameService = gameService;
+            _predictionService = predictionService;
         }
 
         // This maps to: GET /NACGames/NextHomeGame
@@ -22,6 +26,15 @@ namespace API_Data.Controllers
 
             // Returns an HTTP 200 OK status with your JSON object
             return Ok(new { NextHomeGame = matchDate });
+        }
+
+        [HttpGet("Predictions")]
+        public async Task<IActionResult> GetPredictions()
+        {
+            string predictions = await _predictionService.GetPredictionsAsync();
+
+            // Returns an HTTP 200 OK status with your JSON object
+            return Ok(new { Predictions = predictions });
         }
     }
 }
