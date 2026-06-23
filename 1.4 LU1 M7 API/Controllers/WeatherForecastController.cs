@@ -5,6 +5,7 @@ namespace API_Data.Controllers
 {
     [ApiController]
     [Route("[controller]")] // This makes the base route /NACGames
+    [ApiKey]
     public class API_DataController : ControllerBase
     {
         private readonly RetrieveNACGames _gameService;
