@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
+using NACGames;
 
-namespace NACGames.Controllers
+namespace API_Data.Controllers
 {
     [ApiController]
     [Route("[controller]")] // This makes the base route /NACGames
-    public class NACGamesController : ControllerBase
+    public class API_DataController : ControllerBase
     {
         private readonly RetrieveNACGames _gameService;
-
-        public NACGamesController(RetrieveNACGames gameService)
+        public API_DataController(RetrieveNACGames gameService)
         {
             _gameService = gameService;
         }
