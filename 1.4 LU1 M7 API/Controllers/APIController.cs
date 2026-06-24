@@ -1,9 +1,15 @@
+using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using NACGames;
 using Predictions;
-using SensoringData; // Make sure this namespace matches where your new classes live
+using SensoringData;
 
 namespace API_Data.Controllers
 {
@@ -14,7 +20,7 @@ namespace API_Data.Controllers
     {
         private readonly RetrieveNACGames _gameService;
         private readonly RetrievePredictions _predictionService;
-        private readonly RetrieveSensoringData _sensoringDataService; // Injected service
+        private readonly RetrieveSensoringData _sensoringDataService;
 
         public API_DataController(RetrieveNACGames gameService, RetrievePredictions predictionService, RetrieveSensoringData sensoringDataService)
         {
@@ -35,7 +41,7 @@ namespace API_Data.Controllers
         {
             try
             {
-                // 1. Fetch raw response text from the sensoring data service
+                // 1. Fetch raw response text from the live service
                 string rawJson = await _sensoringDataService.GetSensoringDataAsync();
                 if (string.IsNullOrWhiteSpace(rawJson))
                 {
@@ -43,38 +49,57 @@ namespace API_Data.Controllers
                 }
 
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                SensoringDataRoot dataRoot = null;
+                List<SensoringRecord> recordsList = null;
 
+                // 2. Open the JSON document and target the "predictions" array directly
                 using (JsonDocument doc = JsonDocument.Parse(rawJson))
                 {
                     JsonElement root = doc.RootElement;
-                    if (root.ValueKind == JsonValueKind.Object)
-                        dataRoot = JsonSerializer.Deserialize<SensoringDataRoot>(rawJson, options);
-                    else if (root.ValueKind == JsonValueKind.String)
-                        dataRoot = JsonSerializer.Deserialize<SensoringDataRoot>(root.GetString(), options);
-                }
+                    JsonElement arrayElement = default;
 
-                // TEMPORARY TESTING BLOCK: If the live API is empty, generate a fake record to test the AI endpoint
-                if (dataRoot?.Records == null || dataRoot.Records.Count == 0)
-                {
-                    dataRoot = new SensoringDataRoot
+                    // SCENARIO A: The root is a raw JSON array direct list (like your new payload)
+                    if (root.ValueKind == JsonValueKind.Array)
                     {
-                        Records = new List<SensoringRecord>
-        {
-            new SensoringRecord
-            {
-                Id = 999,
-                CaptureDate = DateTime.UtcNow,
-                GarbageType = "Blikje",
-                Location = "51.5865,4.7759", // Rat Verlegh Stadion area
-                Confidence = 95
-            }
-        }
-                    };
+                        arrayElement = root;
+                    }
+                    // SCENARIO B: The root is an object wrapper containing the property
+                    else if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        if (root.TryGetProperty("predictions", out JsonElement lowerProp))
+                        {
+                            arrayElement = lowerProp;
+                        }
+                        else if (root.TryGetProperty("Predictions", out JsonElement upperProp))
+                        {
+                            arrayElement = upperProp;
+                        }
+                    }
+                    // SCENARIO C: The root is a string primitive wrapping the actual data payload
+                    else if (root.ValueKind == JsonValueKind.String)
+                    {
+                        using (JsonDocument innerDoc = JsonDocument.Parse(root.GetString()))
+                        {
+                            JsonElement innerRoot = innerDoc.RootElement;
+                            if (innerRoot.ValueKind == JsonValueKind.Array)
+                            {
+                                arrayElement = innerRoot.Clone();
+                            }
+                            else if (innerRoot.ValueKind == JsonValueKind.Object && innerRoot.TryGetProperty("predictions", out JsonElement innerProp))
+                            {
+                                arrayElement = innerProp.Clone();
+                            }
+                        }
+                    }
+
+                    // Safely deserialize whichever array structure we matched
+                    if (arrayElement.ValueKind == JsonValueKind.Array)
+                    {
+                        recordsList = JsonSerializer.Deserialize<List<SensoringRecord>>(arrayElement.GetRawText(), options);
+                    }
                 }
 
-                // 2. Map the very first record into the flat TrashPostModel format
-                var record = dataRoot.Records.First();
+                // 3. Map the first live record into the flat TrashPostModel format
+                var record = recordsList.First();
                 double latitude = 0.0;
                 double longitude = 0.0;
 
@@ -91,13 +116,11 @@ namespace API_Data.Controllers
                     Latitude = latitude,
                     Longitude = longitude,
 
-                    // Changed property name here to match the new model definition
+                    // Change this line to output ONLY the year, month, and day
                     StartDate = DateTime.Now.ToString("yyyy-MM-dd"),
 
                     Confidence = Math.Round(record.Confidence / 100.0, 2),
                     GarbageType = record.GarbageType,
-
-                    // Contextual metrics
                     GarbageAmount = 5,
                     DistanceToStadiumKm = 3.0,
                     IsNACMatchDay = 1,
@@ -105,13 +128,13 @@ namespace API_Data.Controllers
                     ExpectedCrowdLevel = "Middel"
                 };
 
-                // 3. Serialize and POST the data to the AI service link
+                // 4. Send package to the AI service endpoint
                 var outboundJson = JsonSerializer.Serialize(aiPayload, options);
                 var content = new StringContent(outboundJson, Encoding.UTF8, "application/json");
 
                 using (var client = new HttpClient())
                 {
-                    // ADDED: Inject the required x-api-key header here
+                    // Authenticate outbound transmission
                     client.DefaultRequestHeaders.Add("x-api-key", "ZrjW2HokPKnZOAvMdV6ckt2tN5HaQtx23yqLSe61tbQ");
 
                     var aiResponse = await client.PostAsync("https://airepogroup6-production.up.railway.app/predict-week", content);
@@ -126,7 +149,6 @@ namespace API_Data.Controllers
                         });
                     }
 
-                    // 4. Return parsed response object layout
                     try
                     {
                         using (JsonDocument aiDoc = JsonDocument.Parse(aiResponseBody))
@@ -145,5 +167,59 @@ namespace API_Data.Controllers
                 return StatusCode(500, new { message = "Error during transform and AI evaluation loop", details = ex.Message });
             }
         }
+    }
+
+    // =========================================================================
+    // DATA TRANSFER OBJECT MODELS (DTOs)
+    // =========================================================================
+
+    public class SensoringDataRoot
+    {
+        [JsonPropertyName("predictions")]
+        public List<SensoringRecord> Records { get; set; }
+    }
+
+    public class SensoringRecord
+    {
+        public int Id { get; set; }
+        public DateTime CaptureDate { get; set; }
+        public string GarbageType { get; set; }
+        public string Location { get; set; }
+        public int Confidence { get; set; }
+
+        [JsonPropertyName("externalParameters")]
+        [JsonConverter(typeof(SensoringExternalParametersConverter))]
+        public SensoringExternalParameters ExternalParameters { get; set; }
+    }
+
+    public class SensoringExternalParameters
+    {
+        public string GoogleMapsLink { get; set; }
+        public SensoringWeather Weather { get; set; }
+    }
+
+    public class SensoringWeather
+    {
+        public string Provider { get; set; }
+        public bool Available { get; set; }
+        public DateTime Time { get; set; }
+
+        [JsonPropertyName("temperature2m")]
+        public double Temperature { get; set; }
+
+        [JsonPropertyName("relativeHumidity2m")]
+        public double RelativeHumidity { get; set; }
+    }
+
+    public class SensoringExternalParametersConverter : JsonConverter<SensoringExternalParameters>
+    {
+        public override SensoringExternalParameters Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var jsonString = reader.GetString();
+            return string.IsNullOrEmpty(jsonString) ? null : JsonSerializer.Deserialize<SensoringExternalParameters>(jsonString, options);
+        }
+
+        public override void Write(Utf8JsonWriter writer, SensoringExternalParameters value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(JsonSerializer.Serialize(value, options));
     }
 }
